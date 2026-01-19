@@ -1,0 +1,7 @@
+## Interface: 120000
+## Title: VhyeCvarHelper
+## Notes: Manage CVars with GUI, reset to defaults, and import/export functionality
+## Author: YourName
+## Version: 1.0
+## SavedVariables: VhyeCvarHelperDB
+VhyeCvarHelper.lua
