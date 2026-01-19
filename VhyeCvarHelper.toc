@@ -1,7 +1,8 @@
 ## Interface: 120000
 ## Title: VhyeCvarHelper
-## Notes: Manage CVars with GUI, reset to defaults, and import/export functionality
+## Notes: Replacement for WeakAuras functionality; used to configure and maintain persistent cvar values for World of Warcraft
 ## Author: Vhye
 ## Version: 0.1
 ## SavedVariables: VhyeCvarHelperDB
 VhyeCvarHelper.lua
+
