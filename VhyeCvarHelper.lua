@@ -1,187 +1,154 @@
--- Persistent storage
-VhyeCvarHelperDB = VhyeCvarHelperDB or {}
+local addonName, addon = ...
 
-local frame = CreateFrame("Frame")
-frame:RegisterEvent("PLAYER_LOGIN")
-frame:RegisterEvent("ADDON_LOADED")
-frame:SetScript("OnEvent", function(_, event, addon)
-    if event == "ADDON_LOADED" and addon == "VhyeCvarHelper" then
-        if not VhyeCvarHelperDB then VhyeCvarHelperDB = {} end
-    elseif event == "PLAYER_LOGIN" then
-        for cvar, value in pairs(VhyeCvarHelperDB) do
-            SetCVar(cvar, value)
-        end
-    end
-end)
+-- Main addon table
+local VhyeCvarHelper = {}
+addon.VhyeCvarHelper = VhyeCvarHelper
 
--- GUI Frame
-local gui = CreateFrame("Frame", "VhyeCvarHelperFrame", UIParent, "BasicFrameTemplateWithInset")
-gui:SetSize(450, 500)
-gui:SetPoint("CENTER")
-gui:Hide()
-gui.title = gui:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-gui.title:SetPoint("TOP", 0, -10)
-gui.title:SetText("Vhye CVar Helper")
+-- Local references
+local CreateFrame = CreateFrame
+local C_CVar = C_CVar
+local UIParent = UIParent
+local table_sort = table.sort
 
--- Search Box for filtering CVars
-local searchBox = CreateFrame("EditBox", nil, gui, "InputBoxTemplate")
-searchBox:SetSize(180, 20)
-searchBox:SetPoint("TOP", 0, -40)
-searchBox:SetAutoFocus(false)
-searchBox:SetScript("OnTextChanged", function(self)
-    RefreshDropdown(self:GetText())
-end)
-
--- Dropdown for CVars
-local dropdown = CreateFrame("Frame", "VhyeCvarHelperDropdown", gui, "UIDropDownMenuTemplate")
-dropdown:SetPoint("TOP", searchBox, "BOTTOM", 0, -10)
-
-local allCVars = {}
-for i = 1, GetNumCVarDefaults() do
-    local name = GetCVarDefault(i)
-    if name then
-        table.insert(allCVars, name)
-    end
+------------------------------------------------------------
+-- Slash Command (no globals)
+------------------------------------------------------------
+SLASH_VHYE_CVAR_HELPER1 = "/cvarhelper"
+SlashCmdList["VHYE_CVAR_HELPER"] = function(msg)
+    VhyeCvarHelper:Toggle()
 end
 
-local selectedCVar = nil
-UIDropDownMenu_SetWidth(dropdown, 180)
+------------------------------------------------------------
+-- UI Creation (no global frame name, modern backdrop)
+------------------------------------------------------------
+function VhyeCvarHelper:CreateUI()
+    if self.frame then return end
 
-local function RefreshDropdown(filter)
-    UIDropDownMenu_Initialize(dropdown, function(self, level)
-        for _, cvar in ipairs(allCVars) do
-            if not filter or filter == "" or string.find(cvar:lower(), filter:lower()) then
-                local info = UIDropDownMenu_CreateInfo()
-                info.text = cvar
-                info.func = function()
-                    UIDropDownMenu_SetSelectedName(dropdown, cvar)
-                    selectedCVar = cvar
-                end
-                UIDropDownMenu_AddButton(info)
-            end
-        end
+    local frame = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
+    self.frame = frame
+
+    frame:SetSize(400, 500)
+    frame:SetPoint("CENTER")
+    frame:SetMovable(true)
+    frame:EnableMouse(true)
+    frame:RegisterForDrag("LeftButton")
+    frame:SetScript("OnDragStart", frame.StartMoving)
+    frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
+
+    frame:SetBackdrop({
+        bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+        edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+        tile = true, tileSize = 32, edgeSize = 32,
+        insets = { left = 11, right = 12, top = 12, bottom = 11 }
+    })
+
+    frame:SetBackdropColor(0, 0, 0, 1)
+
+    ------------------------------------------------------------
+    -- Title
+    ------------------------------------------------------------
+    local title = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    title:SetPoint("TOP", 0, -15)
+    title:SetText("CVar Helper")
+
+    ------------------------------------------------------------
+    -- Search Box
+    ------------------------------------------------------------
+    local searchBox = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
+    self.searchBox = searchBox
+    searchBox:SetSize(200, 30)
+    searchBox:SetPoint("TOP", 0, -50)
+    searchBox:SetAutoFocus(false)
+    searchBox:SetScript("OnTextChanged", function()
+        VhyeCvarHelper:RefreshList()
     end)
+
+    ------------------------------------------------------------
+    -- Scroll Frame
+    ------------------------------------------------------------
+    local scrollFrame = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
+    self.scrollFrame = scrollFrame
+    scrollFrame:SetPoint("TOPLEFT", 20, -90)
+    scrollFrame:SetPoint("BOTTOMRIGHT", -40, 20)
+
+    local scrollChild = CreateFrame("Frame")
+    self.scrollChild = scrollChild
+    scrollFrame:SetScrollChild(scrollChild)
+    scrollChild:SetSize(1, 1)
+
+    ------------------------------------------------------------
+    -- CVar List Container
+    ------------------------------------------------------------
+    self.cvarLines = {}
 end
 
-RefreshDropdown("") -- Initialize with all CVars
+------------------------------------------------------------
+-- Toggle UI
+------------------------------------------------------------
+function VhyeCvarHelper:Toggle()
+    if not self.frame then
+        self:CreateUI()
+    end
 
--- EditBox for value
-local editBox = CreateFrame("EditBox", nil, gui, "InputBoxTemplate")
-editBox:SetSize(100, 20)
-editBox:SetPoint("TOP", dropdown, "BOTTOM", 0, -20)
-editBox:SetAutoFocus(false)
-
--- Add Button
-local addButton = CreateFrame("Button", nil, gui, "GameMenuButtonTemplate")
-addButton:SetSize(120, 25)
-addButton:SetPoint("TOP", editBox, "BOTTOM", 0, -10)
-addButton:SetText("Add/Update CVar")
-addButton:SetScript("OnClick", function()
-    local value = editBox:GetText()
-    if selectedCVar and value ~= "" then
-        VhyeCvarHelperDB[selectedCVar] = value
-        RefreshList()
-        print("Added/Updated:", selectedCVar, "=", value)
+    if self.frame:IsShown() then
+        self.frame:Hide()
     else
-        print("Select a CVar and enter a value.")
-    end
-end)
-
--- Reset Button
-local resetButton = CreateFrame("Button", nil, gui, "GameMenuButtonTemplate")
-resetButton:SetSize(120, 25)
-resetButton:SetPoint("TOP", addButton, "BOTTOM", 0, -10)
-resetButton:SetText("Reset All to Defaults")
-resetButton:SetScript("OnClick", function()
-    for cvar in pairs(VhyeCvarHelperDB) do
-        local default = GetCVarDefault(cvar)
-        if default then
-            SetCVar(cvar, default)
-        end
-    end
-    VhyeCvarHelperDB = {}
-    RefreshList()
-    print("All CVars reset to defaults.")
-end)
-
--- Export/Import Buttons
-local exportBox = CreateFrame("EditBox", nil, gui, "InputBoxTemplate")
-exportBox:SetSize(300, 20)
-exportBox:SetPoint("TOP", resetButton, "BOTTOM", 0, -20)
-exportBox:SetAutoFocus(false)
-exportBox:SetText("Export/Import String")
-
-local exportButton = CreateFrame("Button", nil, gui, "GameMenuButtonTemplate")
-exportButton:SetSize(80, 25)
-exportButton:SetPoint("TOPLEFT", exportBox, "BOTTOMLEFT", 0, -10)
-exportButton:SetText("Export")
-exportButton:SetScript("OnClick", function()
-    local str = ""
-    for cvar, value in pairs(VhyeCvarHelperDB) do
-        str = str .. cvar .. "=" .. value .. ";"
-    end
-    exportBox:SetText(str)
-    print("Exported CVars.")
-end)
-
-local importButton = CreateFrame("Button", nil, gui, "GameMenuButtonTemplate")
-importButton:SetSize(80, 25)
-importButton:SetPoint("LEFT", exportButton, "RIGHT", 10, 0)
-importButton:SetText("Import")
-importButton:SetScript("OnClick", function()
-    local str = exportBox:GetText()
-    for pair in string.gmatch(str, "([^;]+)") do
-        local cvar, value = string.match(pair, "([^=]+)=([^=]+)")
-        if cvar and value then
-            VhyeCvarHelperDB[cvar] = value
-        end
-    end
-    RefreshList()
-    print("Imported CVars.")
-end)
-
--- Scrollable list of saved CVars
-local scrollFrame = CreateFrame("ScrollFrame", nil, gui, "UIPanelScrollFrameTemplate")
-scrollFrame:SetSize(200, 150)
-scrollFrame:SetPoint("TOP", importButton, "BOTTOM", 0, -20)
-
-local content = CreateFrame("Frame", nil, scrollFrame)
-content:SetSize(200, 150)
-scrollFrame:SetScrollChild(content)
-
-local function RefreshList()
-    for i, child in ipairs(content.children or {}) do
-        child:Hide()
-    end
-    content.children = {}
-
-    local yOffset = -10
-    for cvar, value in pairs(VhyeCvarHelperDB) do
-        local line = CreateFrame("Frame", nil, content)
-        line:SetSize(180, 20)
-        line:SetPoint("TOPLEFT", 0, yOffset)
-
-        local text = line:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        text:SetPoint("LEFT")
-        text:SetText(cvar .. " = " .. value)
-
-        local removeBtn = CreateFrame("Button", nil, line, "UIPanelButtonTemplate")
-        removeBtn:SetSize(50, 20)
-        removeBtn:SetPoint("RIGHT")
-        removeBtn:SetText("Remove")
-        removeBtn:SetScript("OnClick", function()
-            VhyeCvarHelperDB[cvar] = nil
-            RefreshList()
-        end)
-
-        table.insert(content.children, line)
-        yOffset = yOffset - 25
+        self:RefreshList()
+        self.frame:Show()
     end
 end
 
--- Slash command to show GUI
-SLASH_VHYECVARHELPER1 = "/vhye"
-SlashCmdList["VHYECVARHELPER"] = function()
-    gui:Show()
-    RefreshList()
+------------------------------------------------------------
+-- Build CVar List
+------------------------------------------------------------
+function VhyeCvarHelper:RefreshList()
+    local filter = self.searchBox:GetText():lower()
+
+    local cvars = {}
+    for name in pairs(C_CVar.GetRegisteredCVars()) do
+        if filter == "" or name:lower():find(filter, 1, true) then
+            table.insert(cvars, name)
+        end
+    end
+
+    table_sort(cvars)
+
+    local parent = self.scrollChild
+
+    -- Clear old lines
+    for _, line in ipairs(self.cvarLines) do
+        line:Hide()
+    end
+
+    local y = -5
+    local index = 1
+
+    for _, cvar in ipairs(cvars) do
+        local line = self.cvarLines[index]
+
+        if not line then
+            line = CreateFrame("Button", nil, parent)
+            line:SetSize(340, 20)
+
+            line.text = line:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+            line.text:SetPoint("LEFT")
+
+            line:SetScript("OnClick", function(self)
+                local value = C_CVar.GetCVar(self.cvarName)
+                print(self.cvarName .. " = " .. tostring(value))
+            end)
+
+            self.cvarLines[index] = line
+        end
+
+        line.cvarName = cvar
+        line.text:SetText(cvar)
+        line:SetPoint("TOPLEFT", 0, y)
+        line:Show()
+
+        y = y - 20
+        index = index + 1
+    end
+
+    parent:SetHeight(-y + 10)
 end
